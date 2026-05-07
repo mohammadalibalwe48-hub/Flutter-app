@@ -7,7 +7,6 @@ import { SubmitForm, type SubmitInput } from "../components/SubmitForm";
 import {
   createBuildFromGithub,
   createBuildFromZip,
-  getBackendUrl,
   getBuild,
   getToken,
   previewUrl,
@@ -24,7 +23,10 @@ export function Tester(): JSX.Element {
   const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!getToken() || !getBackendUrl()) {
+    // Backend URL is optional: if blank, the SPA falls back to same-origin
+    // (works when the bundle is served from the FastAPI process). The shared
+    // tester token, on the other hand, is always required.
+    if (!getToken()) {
       setSettingsOpen(true);
     }
     return () => {

@@ -4,6 +4,7 @@ import logging
 import mimetypes
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -71,3 +72,35 @@ async def serve_preview(job_id: str, path: str = "") -> Response:
         raise HTTPException(status_code=404, detail="Not found")
     media_type, _ = mimetypes.guess_type(str(target))
     return FileResponse(target, media_type=media_type or "application/octet-stream")
+
+
+# Serve the frontend SPA from the same origin. Bundle is mounted at /ui/* and
+# the / route redirects there. Keeping the SPA same-origin avoids cross-origin
+# auth + CORS headaches when the backend is behind a basic-auth tunnel.
+_FRONTEND_DIR = Path(__file__).resolve().parent.parent / "static"
+
+
+@app.get("/")
+async def root() -> Response:
+    index = _FRONTEND_DIR / "index.html"
+    if index.is_file():
+        return FileResponse(index, media_type="text/html")
+    return Response(
+        content="Flutter Tester backend is running. Build the frontend into backend/static/.",
+        media_type="text/plain",
+    )
+
+
+@app.get("/{path:path}")
+async def serve_frontend(path: str) -> Response:
+    if not _FRONTEND_DIR.is_dir():
+        raise HTTPException(status_code=404, detail="Frontend bundle not present")
+    candidate = (_FRONTEND_DIR / path).resolve()
+    if str(candidate).startswith(str(_FRONTEND_DIR.resolve())) and candidate.is_file():
+        media_type, _ = mimetypes.guess_type(str(candidate))
+        return FileResponse(candidate, media_type=media_type or "application/octet-stream")
+    # SPA fallback: serve index.html for unknown paths so client-side routes work.
+    index = _FRONTEND_DIR / "index.html"
+    if index.is_file():
+        return FileResponse(index, media_type="text/html")
+    raise HTTPException(status_code=404, detail="Not found")

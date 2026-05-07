@@ -40,6 +40,10 @@ RUN pip install --no-cache-dir \
 RUN useradd -m -u 10001 app && chown -R app:app /opt/flutter /app
 
 COPY --chown=app:app app /app/app
+# Optional: prebuilt frontend bundle is mounted alongside the backend so the
+# whole tester is one same-origin service. The build is reproducible from
+# `frontend/`; see frontend/README.md.
+COPY --chown=app:app static /app/static
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

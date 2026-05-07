@@ -11,3 +11,6 @@ data/
 
 *.egg-info/
 
+
+static/
+

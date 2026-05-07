@@ -11,8 +11,7 @@ export function setToken(value: string): void {
   localStorage.setItem(TOKEN_KEY, value.trim());
 }
 
-export function getBackendUrl(): string {
-  // Order: explicit override in localStorage > VITE_BACKEND_URL build-time env > same origin.
+function rawBackendUrl(): string {
   const override = localStorage.getItem(BACKEND_KEY);
   if (override) return override.replace(/\/$/, "");
   const fromEnv = (import.meta as unknown as { env?: { VITE_BACKEND_URL?: string } }).env
@@ -21,13 +20,42 @@ export function getBackendUrl(): string {
   return "";
 }
 
+interface ParsedBackend {
+  origin: string; // scheme://host[:port], no trailing slash, no credentials
+  basicAuth: string | null; // "user:pass" if URL contained credentials, else null
+}
+
+function parseBackend(): ParsedBackend {
+  const raw = rawBackendUrl();
+  if (!raw) return { origin: "", basicAuth: null };
+  try {
+    const u = new URL(raw);
+    const basicAuth = u.username
+      ? `${decodeURIComponent(u.username)}:${decodeURIComponent(u.password)}`
+      : null;
+    u.username = "";
+    u.password = "";
+    return { origin: u.toString().replace(/\/$/, ""), basicAuth };
+  } catch {
+    return { origin: raw, basicAuth: null };
+  }
+}
+
+export function getBackendUrl(): string {
+  return parseBackend().origin;
+}
+
 export function setBackendUrl(value: string): void {
   localStorage.setItem(BACKEND_KEY, value.trim().replace(/\/$/, ""));
 }
 
 function authHeaders(): HeadersInit {
+  const headers: Record<string, string> = {};
   const token = getToken();
-  return token ? { "X-Tester-Token": token } : {};
+  if (token) headers["X-Tester-Token"] = token;
+  const { basicAuth } = parseBackend();
+  if (basicAuth) headers["Authorization"] = `Basic ${btoa(basicAuth)}`;
+  return headers;
 }
 
 async function jsonOrThrow<T>(resp: Response): Promise<T> {
@@ -81,5 +109,22 @@ export async function listBuilds(): Promise<BuildSummary[]> {
 }
 
 export function previewUrl(buildId: string): string {
-  return `${getBackendUrl()}/preview/${buildId}/`;
+  // For iframes we cannot set request headers, so when the backend lives on a
+  // different origin and uses basic auth we embed the credentials directly in
+  // the URL. When the SPA is served from the same origin as the backend we
+  // just return a relative URL (the iframe inherits cookies/basic-auth).
+  const { origin, basicAuth } = parseBackend();
+  if (!origin) return `/preview/${buildId}/`;
+  if (basicAuth) {
+    try {
+      const u = new URL(`${origin}/preview/${buildId}/`);
+      const [user, ...rest] = basicAuth.split(":");
+      u.username = user;
+      u.password = rest.join(":");
+      return u.toString();
+    } catch {
+      // fall through
+    }
+  }
+  return `${origin}/preview/${buildId}/`;
 }
